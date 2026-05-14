@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import CodeHighlight from './components/CodeHighlight';
 import DirectorySelector from './components/DirectorySelector';
 import { getLanguageFromFileName } from './utils/languageMapping';
@@ -48,6 +48,7 @@ function App() {
   const [isSearching, setIsSearching] = useState(false);
   const [highlightLine, setHighlightLine] = useState<number | undefined>(undefined);
   const [showAI, setShowAI] = useState(false);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [aiConfig, setAiConfig] = useState<AIConfig>({
     provider: 'openrouter',
     apiKey: '',
@@ -205,6 +206,58 @@ function App() {
     setSearchResults(results);
     setIsSearching(false);
   };
+
+  useEffect(() => {
+    if (searchTimerRef.current) {
+      clearTimeout(searchTimerRef.current);
+    }
+    if (!searchQuery.trim() || openedDirs.length === 0) {
+      setSearchResults([]);
+      return;
+    }
+    searchTimerRef.current = setTimeout(async () => {
+      setIsSearching(true);
+      const results: SearchResult[] = [];
+      const query = searchQuery.toLowerCase();
+
+      for (const dir of openedDirs) {
+        const allFiles = Object.entries(dir.fileMap);
+        for (const [filePath, file] of allFiles) {
+          try {
+            const isGBKFile = filePath.endsWith('.cpp') || filePath.endsWith('.c') || filePath.endsWith('.h');
+            let content = '';
+            if (isGBKFile) {
+              try {
+                const buffer = await file.arrayBuffer();
+                const decoder = new TextDecoder('gbk');
+                content = decoder.decode(buffer);
+              } catch {
+                content = await file.text();
+              }
+            } else {
+              content = await file.text();
+            }
+            const lines = content.split('\n');
+            for (let i = 0; i < lines.length; i++) {
+              if (lines[i].toLowerCase().includes(query)) {
+                const fileName = filePath.split('/').pop() || filePath;
+                results.push({ filePath, fileName, lineNumber: i + 1, lineContent: lines[i], fileMap: dir.fileMap });
+              }
+            }
+          } catch (error) {
+            console.error('Failed to search in file:', filePath, error);
+          }
+        }
+      }
+      setSearchResults(results);
+      setIsSearching(false);
+    }, 300);
+    return () => {
+      if (searchTimerRef.current) {
+        clearTimeout(searchTimerRef.current);
+      }
+    };
+  }, [searchQuery, openedDirs]);
 
   const handleSearchResultClick = async (result: SearchResult) => {
     setCurrentFile(result.fileName);
@@ -481,49 +534,122 @@ function App() {
         <div style={{
           flex: 1,
           overflowY: 'auto',
-          padding: '10px'
+          padding: '0'
         }}>
-          {searchResults.length > 0 && (
-            <div style={{ marginBottom: '15px' }}>
+          {(searchQuery.trim() || searchResults.length > 0) && (
+            <div style={{
+              background: '#f5f5f5',
+            }}>
               <div style={{
-                fontSize: '12px',
+                padding: '8px 12px',
+                fontSize: '11px',
                 color: '#666',
-                marginBottom: '8px',
-                fontWeight: 'bold'
+                borderBottom: '1px solid #ddd',
+                background: '#e8e8e8',
+                fontWeight: 'bold',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
               }}>
-                搜索结果 ({searchResults.length} 条)
+                <span>搜索结果 {searchResults.length > 0 ? `(${searchResults.length} 条)` : ''}</span>
+                {isSearching && <span style={{ color: '#0078d4' }}>搜索中...</span>}
               </div>
-              {searchResults.map((result, index) => (
-                <div
-                  key={index}
-                  onClick={() => handleSearchResultClick(result)}
-                  style={{
-                    padding: '8px',
-                    marginBottom: '6px',
-                    background: '#fff',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    border: '1px solid #e0e0e0',
-                    fontSize: '12px'
-                  }}
-                >
-                  <div style={{
-                    fontWeight: 'bold',
-                    color: '#0078d4',
-                    marginBottom: '4px'
-                  }}>
-                    {result.fileName}:{result.lineNumber}
-                  </div>
-                  <div style={{
-                    color: '#333',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis'
-                  }}>
-                    {result.lineContent.trim()}
-                  </div>
+              {searchResults.length === 0 && searchQuery.trim() && !isSearching && (
+                <div style={{
+                  padding: '20px 12px',
+                  textAlign: 'center',
+                  color: '#999',
+                  fontSize: '12px'
+                }}>
+                  未找到匹配结果
                 </div>
-              ))}
+              )}
+              {searchResults.length > 0 && (() => {
+                const grouped: Record<string, SearchResult[]> = {};
+                searchResults.forEach(r => {
+                  if (!grouped[r.filePath]) grouped[r.filePath] = [];
+                  grouped[r.filePath].push(r);
+                });
+                return Object.entries(grouped).map(([filePath, results]) => (
+                  <div key={filePath}>
+                    <div style={{
+                      padding: '6px 12px',
+                      fontSize: '12px',
+                      color: '#333',
+                      background: '#e0e0e0',
+                      borderBottom: '1px solid #ddd',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      fontWeight: 'bold'
+                    }}>
+                      <span style={{ fontSize: '14px' }}>📄</span>
+                      <span>{filePath}</span>
+                      <span style={{ color: '#888', fontWeight: 'normal' }}>({results.length})</span>
+                    </div>
+                    {results.map((result, idx) => (
+                      <div
+                        key={`${filePath}-${idx}`}
+                        onClick={() => handleSearchResultClick(result)}
+                        style={{
+                          padding: '4px 12px 4px 28px',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          color: '#333',
+                          borderBottom: '1px solid #eee',
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: '8px'
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = '#e3f2fd')}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                      >
+                        <span style={{
+                          color: '#999',
+                          fontSize: '11px',
+                          minWidth: '30px',
+                          textAlign: 'right',
+                          paddingTop: '1px'
+                        }}>
+                          {result.lineNumber}
+                        </span>
+                        <span style={{
+                          flex: 1,
+                          whiteSpace: 'pre',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          fontFamily: 'Consolas, Monaco, monospace'
+                        }}>
+                          {(() => {
+                            const text = result.lineContent;
+                            const query = searchQuery;
+                            if (!query) return text;
+                            const lowerText = text.toLowerCase();
+                            const lowerQuery = query.toLowerCase();
+                            const index = lowerText.indexOf(lowerQuery);
+                            if (index === -1) return text;
+                            return (
+                              <>
+                                {text.substring(0, index)}
+                                <span style={{
+                                  background: '#ff9800',
+                                  color: '#fff',
+                                  borderRadius: '2px',
+                                  padding: '0 2px',
+                                  fontWeight: 'bold'
+                                }}>
+                                  {text.substring(index, index + query.length)}
+                                </span>
+                                {text.substring(index + query.length)}
+                              </>
+                            );
+                          })()}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ));
+              })()}
             </div>
           )}
 
