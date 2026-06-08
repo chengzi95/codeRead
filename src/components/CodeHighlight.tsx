@@ -20,7 +20,6 @@ const CodeHighlight: React.FC<CodeHighlightProps> = ({ code, language, searchQue
   const codeRef = useRef<HTMLElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
-  const foldGutterRef = useRef<HTMLDivElement>(null);
   const [foldedRegions, setFoldedRegions] = useState<Set<number>>(new Set());
   const [foldRegions, setFoldRegions] = useState<FoldRegion[]>([]);
 
@@ -249,7 +248,6 @@ const CodeHighlight: React.FC<CodeHighlightProps> = ({ code, language, searchQue
   }, [onCodeSelect]);
 
   const lines = code.split('\n');
-  const hiddenLines = getHiddenLines();
 
   return (
     <div style={{

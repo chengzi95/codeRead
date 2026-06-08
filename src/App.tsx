@@ -65,7 +65,15 @@ function App() {
       setAiConfig(prev => ({ ...prev, model: 'gpt-3.5-turbo' }));
     }
   }, [aiConfig.provider]);
-  const [aiMessages, setAiMessages] = useState<AIMessage[]>([]);
+  const [aiMessages, setAiMessages] = useState<AIMessage[]>(() => {
+    // 从 localStorage 加载历史对话
+    try {
+      const saved = localStorage.getItem('ai-chat-history');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [aiInput, setAiInput] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [selectedCode, setSelectedCode] = useState('');
@@ -405,6 +413,66 @@ function App() {
     }
   };
 
+  // 保存对话历史到 localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('ai-chat-history', JSON.stringify(aiMessages));
+    } catch (error) {
+      console.error('Failed to save AI chat history:', error);
+    }
+  }, [aiMessages]);
+
+  // 全局快捷键支持
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl/Cmd + F: 聚焦搜索框
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        const searchInput = document.querySelector('input[placeholder="Search..."]') as HTMLInputElement;
+        if (searchInput) {
+          searchInput.focus();
+          searchInput.select();
+        }
+      }
+      
+      // Ctrl/Cmd + B: 切换AI助手面板
+      if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+        e.preventDefault();
+        setShowAI(prev => !prev);
+      }
+      
+      // Ctrl/Cmd + K: 清空聊天历史
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        if (confirm('确定要清空AI对话历史吗？')) {
+          clearChatHistory();
+        }
+      }
+      
+      // Ctrl/Cmd + E: 解释选中的代码
+      if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
+        e.preventDefault();
+        if (selectedCode) {
+          explainSelectedCode();
+        }
+      }
+      
+      // Escape: 关闭AI面板或清除选中
+      if (e.key === 'Escape') {
+        if (showAI) {
+          setShowAI(false);
+        } else if (selectedCode) {
+          setSelectedCode('');
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [selectedCode, showAI]);
+
   const handleCodeSelect = (code: string) => {
     setSelectedCode(code);
   };
@@ -413,6 +481,18 @@ function App() {
     if (!selectedCode) return;
     setShowAI(true);
     setAiInput('请解释这段代码的作用');
+  };
+
+  const quickAsk = (question: string) => {
+    if (!selectedCode) return;
+    setShowAI(true);
+    setAiInput(question);
+    handleAISubmit(question);
+  };
+
+  const clearChatHistory = () => {
+    setAiMessages([]);
+    localStorage.removeItem('ai-chat-history');
   };
 
   const renderTree = (items: FileNode[], indent = 0, fileMap: Record<string, File>, dirName: string) => {
@@ -502,7 +582,7 @@ function App() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && performSearch()}
-              placeholder="Search..."
+              placeholder="Search... (Ctrl+F)"
               style={{
                 flex: 1,
                 padding: '6px 10px',
@@ -735,7 +815,8 @@ function App() {
                     borderTop: '1px solid #d0e0f0',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '10px'
+                    gap: '10px',
+                    flexWrap: 'wrap'
                   }}>
                     <span style={{ fontSize: '12px', color: '#666' }}>
                       已选中 {selectedCode.length} 字符
@@ -751,11 +832,56 @@ function App() {
                         borderRadius: '4px',
                         cursor: 'pointer'
                       }}
+                      title="快捷键: Ctrl+E"
                     >
-                      解释选中代码
+                      💡 解释代码
                     </button>
                     <button
-                      onClick={() => setSelectedCode('')}
+                      onClick={() => quickAsk('这段代码有什么潜在问题？')}
+                      style={{
+                        padding: '4px 12px',
+                        fontSize: '12px',
+                        background: '#ff9800',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      🔍 代码审查
+                    </button>
+                    <button
+                      onClick={() => quickAsk('如何优化这段代码？')}
+                      style={{
+                        padding: '4px 12px',
+                        fontSize: '12px',
+                        background: '#4caf50',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      ⚡ 优化建议
+                    </button>
+                    <button
+                      onClick={() => quickAsk('为这段代码生成注释')}
+                      style={{
+                        padding: '4px 12px',
+                        fontSize: '12px',
+                        background: '#9c27b0',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      📝 生成注释
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSelectedCode('');
+                      }}
                       style={{
                         padding: '4px 12px',
                         fontSize: '12px',
@@ -787,19 +913,41 @@ function App() {
                     justifyContent: 'space-between',
                     alignItems: 'center'
                   }}>
-                    <span style={{ fontWeight: 'bold', fontSize: '14px' }}>AI 助手</span>
-                    <button
-                      onClick={() => setShowAI(false)}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        fontSize: '18px',
-                        color: '#666'
-                      }}
-                    >
-                      ×
-                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontWeight: 'bold', fontSize: '14px' }}>AI 助手</span>
+                      <span style={{ fontSize: '11px', color: '#999' }}>Ctrl+B</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      {aiMessages.length > 0 && (
+                        <button
+                          onClick={clearChatHistory}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: '12px',
+                            color: '#666',
+                            padding: '2px 6px',
+                            borderRadius: '4px'
+                          }}
+                          title="清空聊天历史 (Ctrl+K)"
+                        >
+                          🗑️ 清空历史
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setShowAI(false)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          fontSize: '18px',
+                          color: '#666'
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
                   </div>
                   
                   <div style={{
@@ -826,7 +974,7 @@ function App() {
                       <option value="openai">OpenAI</option>
                       <option value="custom">自定义</option>
                     </select>
-                    {aiConfig.provider !== 'mock' && aiConfig.provider !== 'puter' && (
+                    {aiConfig.provider !== 'mock' && (
                       <>
                         <input
                           type="password"
